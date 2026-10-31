@@ -163,8 +163,28 @@ host's stored value. Bridge callbacks in both directions and restore wrapped
 callbacks in `dispose`. Verify the serialized host value, not only the visible
 inner control.
 
+DOM controls do not preserve workflow types automatically. In particular,
+`select.value` is always a string. Normalize it against the canonical widget
+before calling its callback, and copy the widget's value after the callback into
+the promoted host value. Do not copy the original DOM string a second time. A
+binding test must compare both value and `typeof` in the inner widget, host
+widget, exported execution prompt and serialized/reloaded workflow.
+
 Transient hover, open details, canvas buffers, and animation frames can stay in
 the renderer. Do not make them workflow slots.
+
+## Media and nested results
+
+When a media URL changes, assign it and explicitly load the media element. If an
+element has already failed and the same URL becomes valid, retry loading when its
+panel is opened. Drive duration, timeline limits and keyframe availability from
+loaded metadata rather than the selected filename. Test missing -> valid in one
+mounted App instance, then serialize and reload.
+
+ComfyUI keys an inner node's execution result by its concrete host-instance path,
+not by the shared subgraph-definition graph ID. Resolve the frontend's execution
+ID for that node; do not construct `node.graph.id:node.id`. Verify result restore
+after reload and with two hosts so one instance cannot display another's output.
 
 ## Public graph surface
 
@@ -259,6 +279,8 @@ Also inspect the resulting screenshots in `.tmp`. Confirm:
 - no renderer-owned Run or sign-in control;
 - App edits survive serialize/reload;
 - ordinary Node or agent edits appear in App;
+- select/number values keep their canonical JavaScript types in the inner
+  widget, promoted host widget, execution prompt and reloaded workflow;
 - an unavailable source can be replaced without reopening, and loaded metadata
   updates preview duration, timeline and keyframe controls;
 - nested output readback uses the host instance execution path and survives reload;
