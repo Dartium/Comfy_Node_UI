@@ -98,6 +98,18 @@ export function repairLegacyReshootWorkflow(workflow) {
         repaired++;
       }
     }
+    const seed = role("seed");
+    if (seed?.type === "RandomNoise") {
+      if (Array.isArray(seed.widgets_values) && seed.widgets_values[1] !== "fixed") {
+        seed.widgets_values[1] = "fixed";
+        repaired++;
+      }
+      if (seed.widgets_values_named?.control_after_generate !== undefined &&
+          seed.widgets_values_named.control_after_generate !== "fixed") {
+        seed.widgets_values_named.control_after_generate = "fixed";
+        repaired++;
+      }
+    }
     if (!prepare || !prompt || source?.type !== "LoadVideo") continue;
 
     const names = ["width", "height", "length"];

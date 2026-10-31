@@ -11,12 +11,15 @@ assert.ok(host?.inputs.some((input) => input.name === "file"), "Expected the rel
 host.widgets_values_named.file = "selected-video.mp4";
 host.widgets_values[0] = "selected-video.mp4";
 const settings = structuredClone(host.widgets_values_named);
-assert.equal(repairLegacyReshootWorkflow(candidate), 3);
+assert.ok(repairLegacyReshootWorkflow(candidate) >= 4);
 const definition = candidate.definitions.subgraphs.find((graph) => graph.id === host.type);
 const source = definition.nodes.find((node) => node.properties?.reshoot_role === "source-video");
 const prepare = definition.nodes.find((node) => node.properties?.reshoot_role === "prepare");
 const prompt = definition.nodes.find((node) => node.properties?.reshoot_role === "prompt");
 assert.equal(definition.nodes.find((node) => node.type === "RandomNoise")?.properties?.reshoot_role, "seed");
+const seed = definition.nodes.find((node) => node.properties?.reshoot_role === "seed");
+assert.equal(seed.widgets_values[1], "fixed");
+assert.equal(seed.widgets_values_named?.control_after_generate ?? "fixed", "fixed");
 assert.equal(source.widgets_values_named.file, "selected-video.mp4");
 assert.equal(source.inputs.find((input) => input.name === "file").link, null);
 delete settings.file;

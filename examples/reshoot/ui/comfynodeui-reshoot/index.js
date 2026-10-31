@@ -80,6 +80,7 @@ function addStyles() {
       font-size: 11px;
     }
     .reshoot-app__camera {
+      position: relative;
       min-height: 250px;
       margin-bottom: 10px;
       border-radius: 10px;
@@ -91,6 +92,25 @@ function addStyles() {
       display: block;
       width: 100% !important;
       min-height: 250px;
+    }
+    .reshoot-app__camera-mask {
+      position: absolute;
+      z-index: 2;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      height: 22px;
+      background: #191b1e;
+      pointer-events: none;
+    }
+    .reshoot-app__camera-switch-mask {
+      position: absolute;
+      z-index: 2;
+      top: 0;
+      right: 0;
+      width: 120px;
+      height: 30px;
+      background: #191b1e;
     }
     .reshoot-field {
       display: grid;
@@ -162,7 +182,11 @@ function addStyles() {
       height:380px; background:#151719; border:1px solid #3c4046; border-radius:7px;
       touch-action:none; overflow:hidden; cursor:grab; }
     .reshoot-preview-stage img, .reshoot-preview-stage video { width:100%; height:100%; object-fit:contain; min-height:0; }
+    .reshoot-preview-stage img { user-select:none; -webkit-user-drag:none; }
     .reshoot-preview-status { position:absolute; max-width:80%; text-align:center; color:#b1b5bc; }
+    .reshoot-preview-help { position:absolute; left:12px; bottom:10px; margin:0; padding:5px 8px;
+      border-radius:6px; background:rgba(20,22,24,.82); color:#e1e4e8; font:11px system-ui;
+      pointer-events:none; }
     .reshoot-timeline { margin-top:18px; border-top:1px solid #3f4248; padding-top:16px; }
     .reshoot-timeline__transport { display:grid; grid-template-columns:auto minmax(60px,1fr) auto auto; gap:9px; align-items:center; }
     .reshoot-timeline input { min-width:0; width:100%; accent-color:#e9fb45; }
@@ -425,7 +449,7 @@ function borrowCameraWidgets(borrower, active) {
   }
 }
 
-function createRange({ node, name, label, suffix = "" }) {
+function createRange({ node, name, label, suffix = "", precision = 1, pad = false }) {
   const target = widget(node, name);
   if (!target) return null;
   const row = document.createElement("label");
@@ -440,10 +464,16 @@ function createRange({ node, name, label, suffix = "" }) {
   input.step = String(target.options?.step ?? 1);
   const readout = document.createElement("span");
   readout.className = "reshoot-field__value";
+  const display = (value) => {
+    const fixed = Number(value).toFixed(precision);
+    return pad || !fixed.includes(".")
+      ? fixed : fixed.replace(/0+$/, "").replace(/\.$/, "");
+  };
   input.addEventListener("input", () => {
     node._crossviewPreview?.beginAudition();
-    setWidget(node, name, Number(input.value));
-    readout.textContent = `${input.value}${suffix}`;
+    const value = Number(Number(input.value).toFixed(precision));
+    setWidget(node, name, value);
+    readout.textContent = `${display(value)}${suffix}`;
   });
   row.append(title, input, readout);
   return {
@@ -451,7 +481,7 @@ function createRange({ node, name, label, suffix = "" }) {
     sync() {
       const value = Number(target.value ?? 0);
       input.value = String(value);
-      readout.textContent = `${value}${suffix}`;
+      readout.textContent = `${display(value)}${suffix}`;
     },
   };
 }
@@ -506,7 +536,7 @@ function createSelect({ node, name, label, options }) {
   };
 }
 
-function createNumber({ node, name, label }) {
+function createNumber({ node, name, label, step }) {
   const target = widget(node, name);
   if (!target) return null;
   const row = document.createElement("label");
@@ -518,7 +548,7 @@ function createNumber({ node, name, label }) {
   input.type = "number";
   input.min = String(target.options?.min ?? 0);
   input.max = String(target.options?.max ?? Number.MAX_SAFE_INTEGER);
-  input.step = String(target.options?.step ?? 1);
+  input.step = String(step ?? target.options?.step ?? 1);
   input.addEventListener("change", () => setWidget(node, name, Number(input.value)));
   row.append(title, input);
   return {
@@ -564,7 +594,8 @@ function buildApp({ host, openPanel }) {
   heading.textContent = 'Source & camera';
   root.append(heading);
   const preview = createPreviewPanel({host,camera,source,prepare,api,widget,setWidget,executionId,
-    sourceUrl:() => inputMediaUrl(widget(source,'file')?.value)});
+    sourceUrl:() => inputMediaUrl(widget(source,'file')?.value),
+    queuePreparation:(nodeId) => app.queuePrompt(0, 1, {queueNodeIds:[nodeId]})});
   const results = createResultsPanel({host,app,api,executionId});
 
   const sourceRow = document.createElement("div");
@@ -584,20 +615,35 @@ function buildApp({ host, openPanel }) {
 
   const hint = document.createElement("p");
   hint.className = "reshoot-app__hint";
-  hint.textContent = "Drag the camera around your clip · scroll to move closer";
+  hint.textContent = "Camera path and keyframes";
   root.appendChild(hint);
 
   const cameraMount = document.createElement("div");
   cameraMount.className = "reshoot-app__camera";
+  cameraMount.addEventListener('contextmenu', event => {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }, true);
+  const cameraMask = document.createElement('div');
+  cameraMask.className = 'reshoot-app__camera-mask';
+  cameraMask.setAttribute('aria-hidden', 'true');
+  const cameraSwitchMask = document.createElement('div');
+  cameraSwitchMask.className = 'reshoot-app__camera-switch-mask';
+  cameraSwitchMask.setAttribute('aria-hidden', 'true');
+  cameraSwitchMask.addEventListener('pointerdown', event => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  cameraMount.append(cameraMask, cameraSwitchMask);
   root.appendChild(cameraMount);
   const cameraWidgets = createCameraWidgetBorrower(camera, cameraMount, openPanel);
 
   const controls = [];
-  appendControl(root, controls, createRange({ node: camera, name: "azimuth", label: "Rotation", suffix: "°" }));
-  appendControl(root, controls, createRange({ node: camera, name: "elevation", label: "Tilt", suffix: "°" }));
-  appendControl(root, controls, createRange({ node: camera, name: "distance", label: "Distance", suffix: "×" }));
-  appendControl(root, controls, createRange({ node: camera, name: "hfov", label: "Lens", suffix: "°" }));
-  appendControl(root, controls, createRange({ node: camera, name: "vertical_shift", label: "Height" }));
+  appendControl(root, controls, createRange({ node: camera, name: "azimuth", label: "Rotation", suffix: "°", precision: 1 }));
+  appendControl(root, controls, createRange({ node: camera, name: "elevation", label: "Tilt", suffix: "°", precision: 1 }));
+  appendControl(root, controls, createRange({ node: camera, name: "distance", label: "Distance", suffix: "×", precision: 2, pad: true }));
+  appendControl(root, controls, createRange({ node: camera, name: "hfov", label: "Lens", suffix: "°", precision: 1 }));
+  appendControl(root, controls, createRange({ node: camera, name: "vertical_shift", label: "Height", precision: 2, pad: true }));
   appendControl(root, controls, createCheckbox({ node: camera, name: "keep_source_aim", label: "Keep the source camera's aim" }));
 
   const cameraMove = document.createElement("details");
@@ -625,7 +671,7 @@ function buildApp({ host, openPanel }) {
     ],
   }));
   appendControl(advancedBody, controls, createRange({ node: prepare, name: "duration", label: "Duration", suffix: " s" }));
-  appendControl(advancedBody, controls, createNumber({ node: seedNode, name: "noise_seed", label: "Seed" }));
+  appendControl(advancedBody, controls, createNumber({ node: seedNode, name: "noise_seed", label: "Seed", step: 1 }));
   root.appendChild(advanced);
 
   const promptField = document.createElement("label");
@@ -662,6 +708,7 @@ function buildApp({ host, openPanel }) {
       cameraWidgets.restore();
       promotedBridge.dispose();
       preview.setActive(false);
+      preview.setAppVisible(false);
       results.setActive(false);
       root.className = "comfy-app-view-error";
       root.textContent = `App View could not be created: ${message}`;
@@ -735,6 +782,7 @@ function buildApp({ host, openPanel }) {
     sync,
     onShow() {
       active = true;
+      preview.setAppVisible(true);
       requestAnimationFrame(() => {
         if (!active) return;
         sync();
@@ -745,12 +793,14 @@ function buildApp({ host, openPanel }) {
     },
     onHide() {
       active = false;
+      preview.setAppVisible(false);
       cameraWidgets.restore();
       preview.setActive(false);
       results.setActive(false);
     },
     dispose() {
       active = false;
+      preview.setAppVisible(false);
       window.clearInterval(timer);
       cameraWidgets.restore();
       promotedBridge.dispose();

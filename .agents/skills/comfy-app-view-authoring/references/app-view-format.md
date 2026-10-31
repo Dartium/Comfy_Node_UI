@@ -186,6 +186,21 @@ not by the shared subgraph-definition graph ID. Resolve the frontend's execution
 ID for that node; do not construct `node.graph.id:node.id`. Verify result restore
 after reload and with two hosts so one instance cannot display another's output.
 
+If the product flow requires depth analysis or another preparation pass, use
+ComfyUI partial execution with the concrete execution ID of the preparation
+output node. Queue only after the media is valid, fingerprint all canonical
+inputs that invalidate the prepared scene, allow one request in flight, and mark
+the fingerprint prepared only from that node's executed event. If inputs change
+mid-run, queue the newest fingerprint after the old one returns. A persisted
+fingerprint is not proof that a server-side cache survived; recover a cache miss
+with one new preparation pass.
+
+Do not partial-queue the final save/generation nodes. The normal Run control owns
+that step and can reuse ComfyUI's preparation cache. Remember that partial
+queueing still invokes `beforeQueued` on widgets throughout the graph: set a seed
+to fixed when the workflow promises stable repeated generation, and test that a
+preparation pass does not mutate it.
+
 ## Public graph surface
 
 Subgraph inputs and outputs are an author choice:
@@ -283,6 +298,10 @@ Also inspect the resulting screenshots in `.tmp`. Confirm:
   widget, promoted host widget, execution prompt and reloaded workflow;
 - an unavailable source can be replaced without reopening, and loaded metadata
   updates preview duration, timeline and keyframe controls;
+- a new valid source queues only the preparation node once, changing its
+  fingerprint prepares again, and the ordinary Run path remains the sole final
+  generation action;
+- preparation does not change a fixed seed or another unrelated control;
 - nested output readback uses the host instance execution path and survives reload;
 - expanding renderer content grows the node without an inner scrollbar;
 - manually narrowing or widening the host preserves that size and reflows the UI;

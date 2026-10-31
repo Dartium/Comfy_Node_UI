@@ -30,6 +30,10 @@ existing App source being adapted.
 - Let ComfyUI's own Run control execute the graph. Do not add Sign in, Analyze,
   Generate, or `queuePrompt` controls merely because the source standalone App
   had them.
+- When the requested UI genuinely has a preparation stage, queue only its exact
+  Comfy output node through partial execution after the canonical input is
+  valid. Keep final generation on ComfyUI's Run control; do not auto-queue the
+  full graph or add a duplicate Generate button.
 - Give form fields persistent visible labels associated with their controls;
   placeholders and `aria-label` alone do not replace them.
 - Within a field, show the value once. Selects and text/number inputs already
@@ -153,6 +157,10 @@ value followed by a valid selection without reopening the workflow; preview
 metadata, timeline length and serialize/reload must recover. Address nested
 output readback by the node's instance execution path, not the shared subgraph
 definition ID, and verify it after reload with more than one host instance.
+For automatic preparation, verify one partial target, one in-flight request,
+invalidation on every preparation input, and an exact executed/error readback.
+Partial queueing calls widget `beforeQueued` hooks across the graph, so confirm
+that unrelated seeds and controls do not change.
 Exercise its real pointer gestures. Node 2.0 WidgetDOM stops pointermove before
 document-level listeners, so bridge movement at the canvas only when the reused
 widget depends on a document listener and prevent duplicate legacy handling.

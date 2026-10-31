@@ -14,7 +14,9 @@ ComfyUI so its existing App instance is rebuilt from the new files.
 Model download links are stored in the workflow JSON.
 
 In App, expand the right panel for **Preview & keyframes** or **Output**.
-Use ComfyUI's Run button to prepare the warp preview and generate results.
+Choosing a valid source automatically queues only depth and the 3D warp preview.
+Aim the camera and add keyframes there, then use ComfyUI's Run button for the
+final generation.
 Save Video with the original audio remains outside the subgraph; the generated
 and warp saves stay inside.
 
