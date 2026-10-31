@@ -17,7 +17,7 @@ Workflow-specific UIs are separate folders. They are not part of the extension.
     </td>
     <td align="center" width="34%">
       <a href="assets/Show_example_2.png"><img src="assets/Show_example_2.png" alt="Controls and Share UI" width="330"></a><br>
-      <strong>1 — Controls · 2 — Share UI</strong>
+      <strong>1 - Controls. 2 - Share UI</strong>
     </td>
   </tr>
 </table>
