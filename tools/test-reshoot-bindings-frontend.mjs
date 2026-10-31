@@ -27,7 +27,10 @@ function caseWorkflow(change) {
 }
 
 function sourceWorkflow(filename) {
-  return caseWorkflow((candidate, { definition }) => {
+  return caseWorkflow((candidate, { host, definition }) => {
+    host.properties.app_view_mode = "app";
+    host.properties.app_view_layout = "expanded";
+    host.properties.app_view_section = "camera";
     const source = definition.nodes.find(
       (node) => node.properties?.reshoot_role === "source-video",
     );
@@ -137,8 +140,28 @@ const browser = await chromium.launch({
 });
 const page = await browser.newPage({ viewport: { width: 1600, height: 1100 } });
 const pageErrors = [];
-page.on("pageerror", (error) => pageErrors.push(error.stack ?? String(error)));
+page.on("pageerror", (error) => pageErrors.push(error.stack || error.message || String(error)));
 let settings;
+
+async function installQueueSpy() {
+  await page.evaluate(async () => {
+    const { app } = await import("/scripts/app.js");
+    if (!app.__reshootOriginalQueuePrompt) {
+      app.__reshootOriginalQueuePrompt = app.queuePrompt.bind(app);
+      app.queuePrompt = async (number, batchCount = 1, options = {}) => {
+        const normalized = Array.isArray(options) ? { queueNodeIds: options } : options;
+        if (normalized?.queueNodeIds?.length) {
+          app.__reshootQueueCalls.push({
+            number, batchCount, queueNodeIds: [...normalized.queueNodeIds],
+          });
+          return true;
+        }
+        return app.__reshootOriginalQueuePrompt(number, batchCount, options);
+      };
+    }
+    app.__reshootQueueCalls = [];
+  });
+}
 
 async function ready() {
   await page.waitForFunction(() => document.documentElement.dataset.comfyAppViewExtension === "loaded"
@@ -154,6 +177,7 @@ async function load(candidate, loadSource = false) {
   await page.evaluate(async (data) => {
     const { app } = await import("/scripts/app.js");
     window.bindingTestApp = app;
+    app.__reshootQueueCalls = [];
     await app.loadGraphData(data, true, true);
   }, candidate);
   await page.waitForFunction(() => {
@@ -179,6 +203,7 @@ async function load(candidate, loadSource = false) {
         .element.querySelector("video");
       return video.readyState >= 1 || video.error;
     }, undefined, { timeout: 10000 });
+    await page.waitForTimeout(300);
   }
   return page.evaluate(() => {
     const hosts = window.bindingTestApp.graph.nodes.filter(
@@ -193,6 +218,12 @@ async function load(candidate, loadSource = false) {
       .querySelector(".reshoot-app__source select");
     const sourceNode = hosts[0].subgraph.nodes.find(
       (node) => node.properties?.reshoot_role === "source-video",
+    );
+    const cameraNode = hosts[0].subgraph.nodes.find(
+      (node) => node.properties?.reshoot_role === "camera",
+    );
+    const seedNode = hosts[0].subgraph.nodes.find(
+      (node) => node.properties?.reshoot_role === "seed",
     );
     return {
       hosts: hosts.length,
@@ -229,6 +260,65 @@ async function load(candidate, loadSource = false) {
         status: cameraPanel?.querySelector(".reshoot-preview-status")?.textContent ?? "",
         statusHidden: cameraPanel?.querySelector(".reshoot-preview-status")?.hidden ?? false,
       } : null,
+      preparation: {
+        calls: app.__reshootQueueCalls ?? [],
+        cameraExecutionId: `${hosts[0].id}:${cameraNode?.id}`,
+      },
+      seedMode: seedNode?.widgets?.find(
+        (item) => item.name === "control_after_generate",
+      )?.value ?? seedNode?.widgets?.[1]?.value,
+      cameraHint: hosts[0].__comfyAppView.view.root
+        .querySelector(".reshoot-app__hint")?.textContent ?? "",
+      cameraMask: Boolean(hosts[0].__comfyAppView.view.root
+        .querySelector(".reshoot-app__camera-mask")),
+      cameraSwitchMask: Boolean(hosts[0].__comfyAppView.view.root
+        .querySelector(".reshoot-app__camera-switch-mask")),
+    };
+  });
+}
+
+async function dragWarpPreview() {
+  await page.evaluate(() => {
+    const app = window.bindingTestApp;
+    const host = app.graph.nodes.find(
+      (node) => node.properties?.app_view_renderer === "reshoot@1",
+    );
+    const panel = host.__comfyAppView.view.panels.find((item) => item.id === "camera").element;
+    panel.querySelector('[data-view="warp"]').click();
+    panel.querySelector(".reshoot-preview-stage img").hidden = false;
+  });
+  const stage = page.locator(".reshoot-preview-stage").first();
+  const box = await stage.boundingBox();
+  assert.ok(box, "Warp preview stage must be visible");
+  await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.45);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.68, box.y + box.height * 0.36, { steps: 5 });
+  await page.mouse.up();
+  await page.mouse.wheel(0, -120);
+  await page.waitForTimeout(350);
+  return page.evaluate(() => {
+    const app = window.bindingTestApp;
+    const host = app.graph.nodes.find(
+      (node) => node.properties?.app_view_renderer === "reshoot@1",
+    );
+    const camera = host.subgraph.nodes.find(
+      (node) => node.properties?.reshoot_role === "camera",
+    );
+    const value = (name) => camera.widgets.find((item) => item.name === name)?.value;
+    const root = host.__comfyAppView.view.root;
+    const readout = (label) => [...root.querySelectorAll(".reshoot-field")].find(
+      (row) => row.querySelector(".reshoot-field__name")?.textContent === label,
+    )?.querySelector(".reshoot-field__value")?.textContent ?? "";
+    const panel = host.__comfyAppView.view.panels.find((item) => item.id === "camera").element;
+    return {
+      azimuth: value("azimuth"),
+      elevation: value("elevation"),
+      distance: value("distance"),
+      rotationReadout: readout("Rotation"),
+      tiltReadout: readout("Tilt"),
+      distanceReadout: readout("Distance"),
+      help: panel.querySelector(".reshoot-preview-help")?.textContent ?? "",
+      rootNodeTypes: app.graph.nodes.map((node) => node.type),
     };
   });
 }
@@ -484,6 +574,7 @@ try {
     }, node2);
     await page.reload();
     await ready();
+    await installQueueSpy();
     for (const [name, candidate, expected] of cases) {
       const state = await load(candidate, Boolean(expected.sourceFile || expected.missingSource));
       assert.equal(state.hosts, expected.hosts, `${name}: ${JSON.stringify(state)}`);
@@ -503,6 +594,12 @@ try {
         assert.equal(state.promotedWrappers, expected.promotedWrappers,
           `${name}: ${JSON.stringify(state)}`);
       }
+      if (!state.errors.length) {
+        assert.equal(state.seedMode, "fixed", `${name}: ${JSON.stringify(state)}`);
+        assert.equal(state.cameraHint, "Camera path and keyframes");
+        assert.equal(state.cameraMask, true);
+        assert.equal(state.cameraSwitchMask, true);
+      }
       if (expected.sourceFile) {
         assert.ok(state.source.src.includes(encodeURIComponent(expected.sourceFile)) ||
           state.source.src.includes(expected.sourceFile), JSON.stringify(state.source));
@@ -518,12 +615,18 @@ try {
         assert.ok(state.source.frames > 1, JSON.stringify(state.source));
         assert.match(state.source.time, /\d+\.\d+ \/ [1-9]\d*\.\d+ s/);
         assert.equal(state.source.keyDisabled, false);
+        assert.deepEqual(state.preparation.calls, [{
+          number: 0,
+          batchCount: 1,
+          queueNodeIds: [state.preparation.cameraExecutionId],
+        }], JSON.stringify(state.preparation));
       }
       if (expected.missingSource) {
         assert.ok(state.source.src.includes(expected.missingSource), JSON.stringify(state.source));
         assert.ok(state.source.error, JSON.stringify(state.source));
         assert.equal(state.source.status, "Choose an available source video.");
         assert.equal(state.source.statusHidden, false);
+        assert.deepEqual(state.preparation.calls, []);
       }
       if (expected.recoverTo) {
         const recovered = await switchSourceAndRoundTrip(expected.recoverTo);
@@ -532,6 +635,7 @@ try {
         assert.equal(recovered.source.error, "");
         assert.ok(recovered.source.readyState >= 1, JSON.stringify(recovered.source));
         assert.ok(recovered.source.duration > 0, JSON.stringify(recovered.source));
+        assert.equal(recovered.preparation.calls.length, 1, JSON.stringify(recovered.preparation));
       }
       if (expected.switchTo) {
         const roundTrip = await switchSourceAndRoundTrip(expected.switchTo);
@@ -540,8 +644,19 @@ try {
         assert.ok(roundTrip.source.readyState >= 1, JSON.stringify(roundTrip.source));
         assert.ok(roundTrip.source.duration > 0, JSON.stringify(roundTrip.source));
         assert.ok(roundTrip.source.frames > 1, JSON.stringify(roundTrip.source));
+        assert.equal(roundTrip.preparation.calls.length, 1, JSON.stringify(roundTrip.preparation));
       }
       if (expected.controls) {
+        const drag = await dragWarpPreview();
+        assert.equal(Number.isInteger(drag.azimuth * 10), true, JSON.stringify(drag));
+        assert.equal(Number.isInteger(drag.elevation * 10), true, JSON.stringify(drag));
+        assert.equal(Number.isInteger(drag.distance * 100), true, JSON.stringify(drag));
+        assert.match(drag.rotationReadout, /^-?\d+(?:\.\d)?°$/);
+        assert.match(drag.tiltReadout, /^-?\d+(?:\.\d)?°$/);
+        assert.match(drag.distanceReadout, /^\d+\.\d{2}×$/);
+        assert.equal(drag.help, "Drag to orbit · Scroll to move closer");
+        assert.equal(drag.rootNodeTypes.includes("LoadImage"), false, JSON.stringify(drag));
+        assert.equal(drag.rootNodeTypes.length, 2, JSON.stringify(drag));
         const controls = await editControlsAndRoundTrip();
         const expectedValues = {
           aspect: "16:9", resolution: 1, duration: 4.2, rotation: -20,

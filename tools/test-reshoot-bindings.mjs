@@ -41,6 +41,9 @@ export async function testReshootBindings(root = defaultRoot) {
   assert.equal(bindings.camera.properties.reshoot_role, "camera");
   assert.equal(bindings.prompt.properties.reshoot_role, "prompt");
   assert.equal(bindings.seed.properties.reshoot_role, "seed");
+  assert.equal(bindings.seed.widgets_values?.[1], "fixed",
+    "Re-shoot preparation must not randomize the generation seed");
+  assert.equal(bindings.seed.widgets_values_named?.control_after_generate, "fixed");
 
   for (const node of normal.subgraph.nodes) node.title = `Renamed ${node.id}`;
   assert.equal(resolveRequiredReshootBindings(normal.host).camera, bindings.camera,

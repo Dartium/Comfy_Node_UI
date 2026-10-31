@@ -2041,11 +2041,11 @@
             },
             "widgets_values": [
               42,
-              "randomize"
+              "fixed"
             ],
             "widgets_values_named": {
               "noise_seed": 42,
-              "control_after_generate": "randomize"
+              "control_after_generate": "fixed"
             }
           },
           {
