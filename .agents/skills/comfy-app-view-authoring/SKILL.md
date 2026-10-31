@@ -138,13 +138,21 @@ render when necessary, and restore it to the original parent on hide/dispose.
 Use the host's visibility lifecycle, not just saved `app_view_mode` or
 `element.isConnected`: entering a subgraph can leave an inactive App in the DOM.
 Test App -> inner graph -> App repeatedly and also enter from Node mode.
+Before styling, run a narrow binding regression in Node 2.0 and legacy. For each
+DOM-backed control, assert the canonical value and JavaScript type in the inner
+widget, promoted host widget, exported execution prompt, and after
+serialize/reload. DOM selects return strings; normalize against the workflow
+widget's type before invoking callbacks, then propagate the callback-normalized
+widget value rather than the raw DOM value.
 Promoting a media selector to a connected input hides the original selector and
 input preview in Node 2.0 by design. Keep a locally editable loader's selector
 unconnected; App can bind directly to it without promoting it.
-Test an unavailable media value followed by a valid selection without reopening
-the workflow; preview metadata, timeline length and serialize/reload must recover.
-Address nested output readback by the node's instance execution path, not the
-shared subgraph definition ID.
+After replacing framework or renderer files, reload the frontend once so the new
+module is actually under test. In that fresh session, test an unavailable media
+value followed by a valid selection without reopening the workflow; preview
+metadata, timeline length and serialize/reload must recover. Address nested
+output readback by the node's instance execution path, not the shared subgraph
+definition ID, and verify it after reload with more than one host instance.
 Exercise its real pointer gestures. Node 2.0 WidgetDOM stops pointermove before
 document-level listeners, so bridge movement at the canvas only when the reused
 widget depends on a document listener and prevent duplicate legacy handling.
